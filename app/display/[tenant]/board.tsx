@@ -54,6 +54,9 @@ function statusOf(m: BoardMeeting, now: number, soonMinutes: number): Status {
 const hhmm = (ms: number) =>
   new Date(ms).toLocaleTimeString("en-GB", { timeZone: TZ, hour: "2-digit", minute: "2-digit" });
 
+const hhmmss = (ms: number) =>
+  new Date(ms).toLocaleTimeString("en-GB", { timeZone: TZ, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
 export function Board({
   meetings,
   announcements,
@@ -101,6 +104,11 @@ export function Board({
     year: "numeric",
   });
   const clock = hhmm(now);
+  const clockSeconds = hhmmss(now);
+
+  // Teks berjalan: dua salinan berurutan digeser -50% supaya pengulangannya mulus. Durasi mengikuti panjang teks.
+  const marquee = announcements.join("   •   ");
+  const marqueeSeconds = Math.max(20, Math.round(marquee.length * 0.25));
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[#050f24] text-white">
@@ -122,8 +130,8 @@ export function Board({
             <p>{dateText}</p>
             <p className="opacity-80">{clock} WIB</p>
           </div>
-          <p className="border-l border-white/30 pl-[2vw] text-[5.5vw] font-bold leading-none tabular-nums">
-            {clock}
+          <p className="border-l border-white/30 pl-[2vw] text-[4.6vw] font-bold leading-none tabular-nums">
+            {clockSeconds}
           </p>
         </div>
       </header>
@@ -192,7 +200,21 @@ export function Board({
       {/* PENGUMUMAN */}
       <footer className="flex items-center gap-[1.5vw] bg-sky-200 px-[2vw] py-[0.8vw] text-[1.15vw] text-slate-900">
         <span className="shrink-0 text-[1.5vw] font-black">📢 Pengumuman :</span>
-        <p className="line-clamp-2 min-w-0 flex-1 leading-snug">{announcements.join("   |   ")}</p>
+        {/* Hanya isi pengumuman yang berjalan; label di kiri tetap diam. */}
+        <div className="min-w-0 flex-1 overflow-hidden" role="marquee" aria-label={marquee}>
+          <div className="marquee-track flex w-max" style={{ animationDuration: `${marqueeSeconds}s` }}>
+            {[0, 1].map((i) => (
+              <span
+                key={i}
+                aria-hidden={i === 1}
+                className="shrink-0 whitespace-nowrap pr-[6vw] leading-snug"
+                style={{ minWidth: "60vw" }}
+              >
+                {marquee}
+              </span>
+            ))}
+          </div>
+        </div>
         {pages > 1 && (
           <span className="shrink-0 font-bold tabular-nums">
             Halaman {current + 1}/{pages}

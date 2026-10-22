@@ -179,6 +179,13 @@ check("tenant lain dengan token ini -> 404", is404(r), r.status);
 r = await pub.get(`/display/DEMO?key=${token}`);
 check("token benar -> 200 dengan jadwal", r.status === 200 && /JADWAL RAPAT/.test(r.html) && r.html.includes("UJI Layar Seharian"), r.status);
 check("rapat berstatus Menunggu tidak tampil di layar", !r.html.includes("Presentasi Anggaran Marketing"));
+check("jam di header memakai detik (HH:MM:SS)", /\d\d:\d\d:\d\d/.test(text(r.html)));
+{
+  const t = text(r.html);
+  const copies = t.split("Harap hadir tepat waktu").length - 1;
+  check("pengumuman berupa teks berjalan (dua salinan untuk putaran mulus)", r.html.includes("marquee-track") && copies >= 2, `salinan=${copies}`);
+  check("label 'Pengumuman :' berada di luar teks berjalan", /Pengumuman\s*:/.test(t) && r.html.indexOf("Pengumuman") < r.html.indexOf("marquee-track"));
+}
 r = await pub.get(`/display/DEMO?key=${token}&location=HQ`);
 check("filter lokasi HQ menampilkan rapatnya", r.html.includes("UJI Layar Seharian"));
 r = await pub.get(`/display/DEMO?key=${token}&location=XX`);

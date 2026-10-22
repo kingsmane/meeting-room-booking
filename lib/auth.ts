@@ -31,6 +31,7 @@ export type SessionUser = {
   departmentId: number | null;
   departmentName: string | null;
   permissions: Set<string>;
+  roleNames: string[];
   bookingScope: BookingScope;
 };
 
@@ -72,7 +73,7 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
   }
 
   const grants = await db
-    .select({ code: iamPermission.permissionCode, scope: iamRoleScope.scopeType })
+    .select({ code: iamPermission.permissionCode, scope: iamRoleScope.scopeType, roleName: iamRole.roleName })
     .from(iamMemberRole)
     .innerJoin(iamRole, eq(iamRole.id, iamMemberRole.roleId))
     .innerJoin(iamRolePermission, eq(iamRolePermission.roleId, iamRole.id))
@@ -90,6 +91,7 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
     );
 
   const permissions = new Set(grants.map((g) => g.code));
+  const roleNames = [...new Set(grants.map((g) => g.roleName))];
   // Scope terluas di antara semua peran yang dimiliki untuk booking.view.
   let bookingScope: BookingScope = "OWN";
   let best = 0;
@@ -114,6 +116,7 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
     departmentId: row.departmentId,
     departmentName: row.departmentName,
     permissions,
+    roleNames,
     bookingScope,
   };
 });

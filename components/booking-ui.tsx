@@ -69,10 +69,10 @@ type Row = {
 // Daftar ringkas booking (dipakai beranda). Menampilkan tanggal karena rentangnya lebih dari satu hari.
 export function BookingList({ rows, empty }: { rows: Row[]; empty: string }) {
   if (rows.length === 0) {
-    return <p className="rounded-lg bg-white p-6 text-center text-sm text-slate-500 ring-1 ring-slate-200">{empty}</p>;
+    return <p className="px-4 py-10 text-center text-sm text-slate-500">{empty}</p>;
   }
   return (
-    <ul className="divide-y divide-slate-100 rounded-lg bg-white ring-1 ring-slate-200">
+    <ul className="divide-y divide-slate-100">
       {rows.map((b) => (
         <li key={b.id}>
           <Link href={`/bookings/${b.id}`} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50">

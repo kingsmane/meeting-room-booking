@@ -82,6 +82,7 @@ export const text = (html) =>
   html
     .replace(/<script[\s\S]*?<\/script>/g, "")
     .replace(/<style[\s\S]*?<\/style>/g, "")
+    .replace(/<!--[\s\S]*?-->/g, "") // React menyisipkan komentar di antara teks dan ekspresi; jangan jadikan spasi
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ");
 

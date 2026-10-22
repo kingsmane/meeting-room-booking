@@ -51,6 +51,21 @@ Alamat layar TV dicetak oleh seed dan tersedia di Pengaturan: `/display/DEMO?key
 - `lib/auth.ts` – Data Access Layer: sesi, izin, scope. `lib/permissions.mjs` – daftar izin dan peran
   (dipakai aplikasi dan seed). `lib/booking.ts` – status, transisi, dan kebijakan akses (murni).
 - `app/(app)/actions.ts`, `app/(app)/admin/actions.ts` – seluruh mutasi (Server Action).
+- `components/app-shell.tsx` – kerangka template admin (sidebar, topbar, breadcrumb, menu pengguna, drawer di
+  layar kecil). `components/ui.tsx` – `PageHeader`, `Card`, `StatCard`, `SearchBar`. `components/icons.tsx` – ikon SVG.
+- `lib/pagination.ts` + `components/pagination.tsx` – paging di sisi server (lihat bawah).
+
+## Paging dan pencarian
+
+Semua daftar (jadwal booking, antrean persetujuan, pengguna, ruangan, audit log, notifikasi, "Booking saya")
+dipaging di database dengan `LIMIT/OFFSET`. Total baris diambil di query yang sama lewat `count(*) over()`.
+
+- Parameter URL: `page`, `size` (10/25/50), `q` (pencarian). Audit log punya `lpage` untuk tabel login.
+- Nilai tidak valid dinormalkan (`page=abc` → 1; `size=7` → 10); halaman di luar jangkauan mundur ke halaman terakhir.
+- Pencarian memakai `ILIKE` dengan karakter `%`, `_`, `\` di-escape. Scope akses (`OWN`/`DEPARTMENT`/`ALL`) berlaku
+  di query yang sama, jadi total dan isi halaman tidak membocorkan data di luar cakupan pengguna.
+- Untuk menambah daftar baru: buat fungsi data yang menerima `{ limit, offset }` dan menyertakan
+  `total: sql<number>\`count(*) over()::int\``, lalu panggil `fetchPage(...)` dan render `<Pagination />`.
 - `scripts/seed.mjs` – data demo. `proxy.ts` – pengecekan awal cookie sesi.
 
 ## Keputusan desain yang perlu diketahui
@@ -72,7 +87,7 @@ Alamat layar TV dicetak oleh seed dan tersedia di Pengaturan: `/display/DEMO?key
 ## Pengujian
 
 ```bash
-npm test                          # tes unit (kebijakan akses, password, izin): cepat, tanpa server dan database
+npm test                          # tes unit (kebijakan akses, password, izin, paging): cepat, tanpa server dan database
 npm run build && npx next start -p 3100     # terminal lain, untuk tes E2E
 npm run test:e2e -- --yes         # tes E2E terhadap server di atas
 ```
@@ -81,7 +96,8 @@ npm run test:e2e -- --yes         # tes E2E terhadap server di atas
   (Node 22.6+), jadi file itu harus tetap murni (tanpa import dari Next.js atau database).
 - Tes E2E (`tests/e2e/`) meniru browser: login, mengirim form Server Action, lalu memeriksa hasilnya di
   database. Cakupannya autentikasi, otorisasi (termasuk IDOR dan POST palsu), booking, bentrok, persetujuan,
-  scope, jadwal ulang, check-in, layar TV, ruangan, blokir, master, pengguna, pengaturan, dan audit.
+  scope, jadwal ulang, check-in, layar TV, ruangan, blokir, master, pengguna, pengaturan, audit, serta paging
+  dan pencarian (`03-paging.mjs`, memakai puluhan data uji).
 - **Runner E2E menghapus dan mengisi ulang tenant `DEMO`** di `DATABASE_URL` dan memerlukan `--yes`. Gunakan
   database pengembangan. Alamat server dapat diubah dengan `E2E_BASE_URL`.
 - Uji terhadap build produksi (`next start`), bukan `next dev`: mode dev menampilkan `InvariantError` soal

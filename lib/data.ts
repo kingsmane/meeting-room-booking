@@ -1,6 +1,6 @@
 // Query baca. Hanya dipakai dari Server Component / Server Action.
 // Fungsi yang menerima SessionUser menerapkan scope booking.view (OWN / DEPARTMENT / ALL).
-import { and, asc, desc, eq, exists, gte, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, exists, gte, ilike, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import {
   auditLog,
@@ -25,6 +25,7 @@ import {
 } from "@/db/schema";
 import type { SessionUser } from "@/lib/auth";
 import { getSettings } from "@/lib/settings";
+import { likePattern } from "@/lib/pagination";
 
 // ---------- Booking ----------
 
@@ -49,7 +50,23 @@ const bookingColumns = {
   department: orgDepartment.departmentName,
   typeName: meetingType.typeName,
   requireApproval: meetingType.requireApproval,
+  // Total baris sebelum LIMIT, untuk paging (lihat lib/pagination.ts).
+  total: sql<number>`count(*) over()::int`,
 };
+
+type Paging = { limit: number; offset: number };
+
+// Pencarian booking: judul, nomor, ruangan, atau penyelenggara.
+function bookingSearch(q: string | undefined): SQL {
+  if (!q) return sql`true`;
+  const p = likePattern(q);
+  return or(
+    ilike(meetingBooking.title, p),
+    ilike(meetingBooking.bookingNo, p),
+    ilike(meetingRoom.roomName, p),
+    ilike(iamUser.fullName, p),
+  ) as SQL;
+}
 
 function bookingQuery() {
   return db
@@ -89,8 +106,28 @@ function scopeCondition(user: SessionUser): SQL {
 
 const notDeleted = isNull(meetingBooking.deletedAt);
 
-export async function listBookings(user: SessionUser, date: string) {
+export async function listBookings(user: SessionUser, date: string, q: string | undefined, { limit, offset }: Paging) {
   return bookingQuery()
+    .where(
+      and(
+        eq(meetingBooking.tenantId, user.tenantId),
+        notDeleted,
+        scopeCondition(user),
+        sql`(${meetingBooking.startAt} at time zone 'Asia/Jakarta')::date = ${date}::date`,
+        bookingSearch(q),
+      ),
+    )
+    .orderBy(asc(meetingBooking.startAt), asc(meetingRoom.roomName), asc(meetingBooking.id))
+    .limit(limit)
+    .offset(offset);
+}
+
+// Hitungan per status pada satu tanggal (kartu statistik), terlepas dari pencarian dan halaman.
+export async function getBookingStats(user: SessionUser, date: string) {
+  const rows = await db
+    .select({ status: meetingBooking.status, n: sql<number>`count(*)::int` })
+    .from(meetingBooking)
+    .innerJoin(iamTenantMember, eq(meetingBooking.organizerMemberId, iamTenantMember.id))
     .where(
       and(
         eq(meetingBooking.tenantId, user.tenantId),
@@ -99,11 +136,14 @@ export async function listBookings(user: SessionUser, date: string) {
         sql`(${meetingBooking.startAt} at time zone 'Asia/Jakarta')::date = ${date}::date`,
       ),
     )
-    .orderBy(asc(meetingBooking.startAt), asc(meetingRoom.roomName));
+    .groupBy(meetingBooking.status);
+  const byStatus: Record<string, number> = {};
+  for (const r of rows) byStatus[r.status] = r.n;
+  return { byStatus, total: rows.reduce((s, r) => s + r.n, 0) };
 }
 
 // Booking milik user (sebagai penyelenggara) mulai 7 hari terakhir sampai mendatang.
-export async function listMyBookings(user: SessionUser) {
+export async function listMyBookings(user: SessionUser, { limit, offset }: Paging) {
   return bookingQuery()
     .where(
       and(
@@ -113,8 +153,9 @@ export async function listMyBookings(user: SessionUser) {
         gte(meetingBooking.endAt, sql`now() - interval '7 days'`),
       ),
     )
-    .orderBy(asc(meetingBooking.startAt))
-    .limit(100);
+    .orderBy(asc(meetingBooking.startAt), asc(meetingBooking.id))
+    .limit(limit)
+    .offset(offset);
 }
 
 // Rapat yang mengundang user sebagai peserta (bukan penyelenggara).
@@ -302,29 +343,42 @@ export async function listMembersLite(tenantId: number) {
 
 // ---------- Ruangan ----------
 
-export async function listRooms(tenantId: number) {
-  const [rooms, facilityRows] = await Promise.all([
-    db
-      .select({
-        id: meetingRoom.id,
-        roomCode: meetingRoom.roomCode,
-        roomName: meetingRoom.roomName,
-        floor: meetingRoom.floor,
-        capacity: meetingRoom.capacity,
-        status: meetingRoom.status,
-        locationName: orgLocation.locationName,
-      })
-      .from(meetingRoom)
-      .innerJoin(orgLocation, eq(meetingRoom.locationId, orgLocation.id))
-      .where(and(eq(meetingRoom.tenantId, tenantId), eq(meetingRoom.isActive, true)))
-      .orderBy(asc(meetingRoom.roomName)),
-    db
-      .select({ roomId: meetingRoomFacility.roomId, name: meetingFacility.facilityName })
-      .from(meetingRoomFacility)
-      .innerJoin(meetingFacility, eq(meetingFacility.id, meetingRoomFacility.facilityId))
-      .innerJoin(meetingRoom, eq(meetingRoom.id, meetingRoomFacility.roomId))
-      .where(eq(meetingRoom.tenantId, tenantId)),
-  ]);
+export async function listRooms(tenantId: number, q: string | undefined, { limit, offset }: Paging) {
+  const pattern = q ? likePattern(q) : null;
+  const rooms = await db
+    .select({
+      id: meetingRoom.id,
+      roomCode: meetingRoom.roomCode,
+      roomName: meetingRoom.roomName,
+      floor: meetingRoom.floor,
+      capacity: meetingRoom.capacity,
+      status: meetingRoom.status,
+      locationName: orgLocation.locationName,
+      total: sql<number>`count(*) over()::int`,
+    })
+    .from(meetingRoom)
+    .innerJoin(orgLocation, eq(meetingRoom.locationId, orgLocation.id))
+    .where(
+      and(
+        eq(meetingRoom.tenantId, tenantId),
+        eq(meetingRoom.isActive, true),
+        pattern
+          ? or(ilike(meetingRoom.roomName, pattern), ilike(meetingRoom.roomCode, pattern), ilike(meetingRoom.floor, pattern))
+          : sql`true`,
+      ),
+    )
+    .orderBy(asc(meetingRoom.roomName), asc(meetingRoom.id))
+    .limit(limit)
+    .offset(offset);
+
+  // Fasilitas hanya diambil untuk ruangan pada halaman ini.
+  const facilityRows = rooms.length
+    ? await db
+        .select({ roomId: meetingRoomFacility.roomId, name: meetingFacility.facilityName })
+        .from(meetingRoomFacility)
+        .innerJoin(meetingFacility, eq(meetingFacility.id, meetingRoomFacility.facilityId))
+        .where(inArray(meetingRoomFacility.roomId, rooms.map((r) => r.id)))
+    : [];
   const byRoom = new Map<number, string[]>();
   for (const f of facilityRows) byRoom.set(f.roomId, [...(byRoom.get(f.roomId) ?? []), f.name]);
   return rooms.map((r) => ({ ...r, facilities: byRoom.get(r.id) ?? [] }));
@@ -438,9 +492,11 @@ export async function listFacilities(tenantId: number) {
 
 // ---------- Pengguna dan peran ----------
 
-export async function listUsers(tenantId: number) {
+export async function listUsers(tenantId: number, q: string | undefined, { limit, offset }: Paging) {
+  const pattern = q ? likePattern(q) : null;
   const members = await db
     .select({
+      total: sql<number>`count(*) over()::int`,
       memberId: iamTenantMember.id,
       userId: iamUser.id,
       username: iamUser.username,
@@ -457,8 +513,22 @@ export async function listUsers(tenantId: number) {
     .from(iamTenantMember)
     .innerJoin(iamUser, eq(iamUser.id, iamTenantMember.userId))
     .leftJoin(orgDepartment, eq(orgDepartment.id, iamTenantMember.departmentId))
-    .where(eq(iamTenantMember.tenantId, tenantId))
-    .orderBy(asc(iamUser.fullName));
+    .where(
+      and(
+        eq(iamTenantMember.tenantId, tenantId),
+        pattern
+          ? or(
+              ilike(iamUser.fullName, pattern),
+              ilike(iamUser.username, pattern),
+              ilike(iamUser.email, pattern),
+              ilike(orgDepartment.departmentName, pattern),
+            )
+          : sql`true`,
+      ),
+    )
+    .orderBy(asc(iamUser.fullName), asc(iamTenantMember.id))
+    .limit(limit)
+    .offset(offset);
 
   const roles = members.length
     ? await db
@@ -508,9 +578,10 @@ export async function countUnread(user: SessionUser) {
   return row?.n ?? 0;
 }
 
-export async function listNotifications(user: SessionUser) {
+export async function listNotifications(user: SessionUser, { limit, offset }: Paging) {
   return db
     .select({
+      total: sql<number>`count(*) over()::int`,
       id: notification.id,
       type: notification.notificationType,
       title: notification.title,
@@ -522,13 +593,15 @@ export async function listNotifications(user: SessionUser) {
     })
     .from(notification)
     .where(and(eq(notification.tenantId, user.tenantId), eq(notification.userId, user.userId)))
-    .orderBy(desc(notification.createdAt))
-    .limit(50);
+    .orderBy(desc(notification.createdAt), desc(notification.id))
+    .limit(limit)
+    .offset(offset);
 }
 
-export async function listAuditLog(tenantId: number, limit = 100) {
+export async function listAuditLog(tenantId: number, { limit, offset }: Paging) {
   return db
     .select({
+      total: sql<number>`count(*) over()::int`,
       id: auditLog.id,
       module: auditLog.module,
       table: auditLog.tableName,
@@ -542,12 +615,14 @@ export async function listAuditLog(tenantId: number, limit = 100) {
     .from(auditLog)
     .where(eq(auditLog.tenantId, tenantId))
     .orderBy(desc(auditLog.id))
-    .limit(limit);
+    .limit(limit)
+    .offset(offset);
 }
 
-export async function listLoginAudit(tenantId: number, limit = 50) {
+export async function listLoginAudit(tenantId: number, { limit, offset }: Paging) {
   return db
     .select({
+      total: sql<number>`count(*) over()::int`,
       id: auditLogin.id,
       username: iamUser.username,
       success: auditLogin.success,
@@ -559,7 +634,8 @@ export async function listLoginAudit(tenantId: number, limit = 50) {
     .leftJoin(iamUser, eq(iamUser.id, auditLogin.userId))
     .where(eq(auditLogin.tenantId, tenantId))
     .orderBy(desc(auditLogin.id))
-    .limit(limit);
+    .limit(limit)
+    .offset(offset);
 }
 
 // ---------- Layar TV ----------
@@ -603,7 +679,7 @@ export async function getDisplayData(tenantId: number, date: string, locationCod
 }
 
 // Semua pengajuan yang menunggu persetujuan (lintas tanggal), sesuai scope user.
-export async function listPendingBookings(user: SessionUser) {
+export async function listPendingBookings(user: SessionUser, q: string | undefined, { limit, offset }: Paging) {
   return bookingQuery()
     .where(
       and(
@@ -612,8 +688,10 @@ export async function listPendingBookings(user: SessionUser) {
         eq(meetingBooking.status, "PENDING"),
         gte(meetingBooking.endAt, sql`now()`),
         scopeCondition(user),
+        bookingSearch(q),
       ),
     )
-    .orderBy(asc(meetingBooking.startAt))
-    .limit(200);
+    .orderBy(asc(meetingBooking.startAt), asc(meetingBooking.id))
+    .limit(limit)
+    .offset(offset);
 }

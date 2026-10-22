@@ -177,7 +177,7 @@ const actions = (await rows("select distinct action from audit_log where tenant_
 for (const a of ["CREATE", "UPDATE", "STATUS", "BLOCK_CREATE", "BLOCK_CANCEL", "ROLE_CHANGE", "DEACTIVATE", "ACTIVATE", "PASSWORD_RESET", "PASSWORD_CHANGE", "ANNOUNCEMENTS", "DISPLAY", "DISPLAY_TOKEN_ROTATE"]) {
   check(`audit mencatat ${a}`, actions.includes(a), JSON.stringify(actions));
 }
-const page = text((await adm.get("/admin/audit")).html);
+const page = text((await adm.get("/admin/audit?size=50")).html);
 check("halaman audit menampilkan aktivitas dan percobaan login", /ROLE_CHANGE/.test(page) && /Berhasil/.test(page) && /BAD_PASSWORD/.test(page));
 check("audit terisi pelaku dan request_id", (await one("select count(*)::int n from audit_log where tenant_id=$1 and actor_nik is not null and request_id is not null", tenantId)).n > 10);
 summary();

@@ -47,12 +47,13 @@ async function removeOrphanUsers() {
 }
 
 const reseed = async () => {
-  await removeOrphanUsers();
   const code = await run(["scripts/seed.mjs", "--reset"]);
   if (code !== 0) {
     console.error("Seed gagal; tes dibatalkan.");
     process.exit(2);
   }
+  // Setelah reseed: penghapusan tenant membuat user buatan tes tanpa keanggotaan (yatim), dan username-nya unik global.
+  await removeOrphanUsers();
 };
 
 const suites = readdirSync(join(root, "tests", "e2e"))

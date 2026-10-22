@@ -6,7 +6,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test \"tests/unit/*.test.mjs\"",
+    "test:e2e": "node --env-file=.env.local scripts/e2e.mjs",
+    "db:migrate": "node --env-file=.env.local scripts/migrate.mjs",
+    "db:seed": "node --env-file=.env.local scripts/seed.mjs",
+    "db:seed:reset": "node --env-file=.env.local scripts/seed.mjs --reset"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.2.0",
